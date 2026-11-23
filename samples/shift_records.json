@@ -1,0 +1,7 @@
+{
+  "batch_id": "BENCH-17",
+  "records": [
+    {"record_id": "C1", "source_ref": "bench/17/1", "work_class": "ordinary", "disposition": {"ordinary_children": 0, "special_children": 0, "review": true}},
+    {"record_id": "S1", "source_ref": "bench/17/2", "work_class": "special", "disposition": {"ordinary_children": 0, "special_children": 0, "review": false}}
+  ]
+}
