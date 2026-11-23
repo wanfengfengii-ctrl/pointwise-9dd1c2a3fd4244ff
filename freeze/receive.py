@@ -3,6 +3,8 @@ import sqlite3
 from freeze.evidence import EvidenceProvenance, FrozenEvidence
 from freeze.evidence_codec import decode_evidence
 from freeze.evidence_store import EvidenceStore, ReceivedEntry
+from freeze.mix_codec import decode_mix_manifest
+from handover.report_store import MixtureEntry, ReportStore
 from intake.record_checks import valid_name
 from ledger_sql import is_row_id
 
@@ -48,3 +50,37 @@ def load_received_evidence(store: EvidenceStore, evidence_id: str) -> FrozenEvid
         raise ReceiptRejected(f'unknown received evidence: {evidence_id}')
     expected = EvidenceProvenance(evidence_id, entry.source_id, entry.batch_id, entry.revision_id)
     return _checked_evidence(entry.payload, expected)
+
+
+def _checked_payload(payload):
+    try:
+        return decode_evidence(payload)
+    except ValueError as exc:
+        raise ReceiptRejected(str(exc)) from exc
+
+
+def _received_entry(evidence, payload):
+    origin = evidence.provenance
+    return ReceivedEntry(origin.evidence_id, payload, origin.source_id, origin.batch_id, origin.revision_id)
+
+
+def receive_mix(offline: ReportStore, expected_id, manifest, left_payload, right_payload) -> str:
+    """Verify a mixture manifest against its id and both V1 parents, then store it."""
+    if not valid_name(expected_id):
+        raise ReceiptRejected('expected a valid mixture id')
+    try:
+        mix_id, left_id, right_id, low, high = decode_mix_manifest(manifest)
+    except ValueError as exc:
+        raise ReceiptRejected(str(exc)) from exc
+    if mix_id != expected_id:
+        raise ReceiptRejected('received manifest does not match the expected mixture id')
+    left = _checked_payload(left_payload)
+    right = _checked_payload(right_payload)
+    if (left.provenance.evidence_id, right.provenance.evidence_id) != (left_id, right_id):
+        raise ReceiptRejected('received evidence does not match the ordered manifest parents')
+    mixture = MixtureEntry(mix_id, manifest, left_id, right_id, low, high)
+    parents = (_received_entry(left, left_payload), _received_entry(right, right_payload))
+    try:
+        return offline.store_mixture(mixture, parents)
+    except sqlite3.Error as exc:
+        raise ReceiptRejected('could not store the received mixture') from exc
